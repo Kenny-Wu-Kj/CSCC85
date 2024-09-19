@@ -1,0 +1,36 @@
+This exercise has 2 major goals:
+
+ * Help you practice processing noisy data from sensors to extract more accurate estimates of 
+variables of interest
+
+ * Help you develop an understanding of how much work goes into extracting meaningful information 
+from raw measurements on a realistic application
+
+ Your goal:
+
+ - Implement the sensor/signal processing components that recover a runner's position, velocity, 
+direction, and heart rate from sensor measurements on a wrist-worn device (you may have something 
+like that yourself!).
+
+ - Think creatively about ways in which sensor measurements can be filtered, cleaned up, or 
+combined in order to give you more reliable information
+
+ - Get as close to the 'real' values of the relevant quantities as you can.
+
+ The starter code comments describe all you need to do.
+
+ The FleetByte.zip Download The FleetByte.zip 
+
+ There's only one script you need to modify: FleetByte.m - do not change Sim1.m in any way please!
+
+ Also important: There is a 'pkg load'  instruction near the top that is only needed in Octave, if 
+you're using Matlab please comment this out (or you'll get an error!)
+
+ Submitting your work:
+
+    Rename your script   FleetByte_teamname.m
+
+    Submit right here on Quercus only once per team, thank you!
+
+ As ever - talk with us if you have any questions, aren't quite sure how to proceed, or want to ask 
+us about possible ways to solve this exercise.
