@@ -50,7 +50,10 @@ pkg load image;     % COMMENT THIS OUT IF USING MATLAB - this is only needed in 
 
 % Persistent variables are equivalent to C static variables. They are local, but keep their value
 % between function calls. Rather useful for simulations :)
-persistent XYZ=[256 256 .5];
+persistent XYZ;
+if isempty(XYZ)
+    XYZ = [256 256 .5];
+end
 persistent x_old=XYZ(1);
 persistent y_old=XYZ(2);
 persistent d=[1 0]';
@@ -58,7 +61,7 @@ persistent HR=72;
 persistent spd=10;
 persistent frame=0;
 persistent map;
-persistent HRS=zeros(1200,1);
+persistent HRS_pers=zeros(1200,1);  % Changed HRS to HRS_pers
 persistent HRnoise=.15;
 persistent Rgnoise=pi/22;
 persistent beatidx=1;
@@ -159,7 +162,7 @@ if (frame==0)
  for i=1:1200
   beatidx=beatidx+beat_inc;
   if (beatidx>61) beatidx=beatidx-60; end;
-  HRS(i)=beat1((floor(beatidx)))+(HRnoise*(rand-.5));
+  HRS_pers(i)=beat1((floor(beatidx)))+(HRnoise*(rand-.5));
  end;
 end;
 
@@ -219,16 +222,16 @@ end;
 beat_inc=HR/60;
 
 % Generate HRT data for the last second
-HRS(1:1200-120)=HRS(121:end);
+HRS_pers(1:1200-120)=HRS_pers(121:end);
 npr=rand;
 for i=1200-120:1200
     beatidx=beatidx+beat_inc;
     if (beatidx>61) beatidx=beatidx-60; end;
-    HRS(i)=beat1((floor(beatidx)))+(HRnoise*(rand-.5));
+    HRS_pers(i)=beat1((floor(beatidx)))+(HRnoise*(rand-.5));
     if (npr<.05)
-     HRS(i)=HRS(i)*.5*rand;
+     HRS_pers(i)=HRS_pers(i)*.5*rand;
     else if (npr<.1)
-        HRS(i)=HRS(i)*.25*rand;
+        HRS_pers(i)=HRS_pers(i)*.25*rand;
       end;
     end;
 end;
@@ -255,3 +258,5 @@ hist_dr(end+1,:)=d;
 hist_XYZ(end+1,:)=XYZ;
 
 frame=frame+1;
+
+HRS = HRS_pers;
