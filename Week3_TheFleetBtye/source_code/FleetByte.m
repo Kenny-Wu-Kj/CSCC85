@@ -123,6 +123,15 @@ pkg load image;             %%% UNCOMMENT THIS FOR OCTAVE - Octave is doofus and
 close all;
 %%%%%%%%%% YOU CAN ADD ANY VARIABLES YOU MAY NEED BETWEEN THIS LINE... %%%%%%%%%%%%%%%%%
 
+prev_xyz = [128 128 0.5];
+distance = 0;
+direction_vector_2D = [0 1];
+prev_vel = 5;
+pred_xy = [128 128];
+pred_di = [0 1];
+delta_t = pi / 8;
+prev_rg = 0;
+
 %%%%%%%%%% ... AND THIS LINE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 idx=1;
@@ -181,24 +190,86 @@ while(idx<=secs)               %% Main simulation loop
  %          corresponding estimate, taken over time. 
  %    
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ %xyz=MPS;                % Replace with your computation of position, the map is 512x512 pixels in size
 
- xyz=[128 128 .5];       % Replace with your computation of position, the map is 512x512 pixels in size
- hr=82;                  % Replace with your computation of heart rate
- di=[0 1];               % Replace with your computation for running direction, this should be a 2D unit vector
- vel=5;                  % Replace with your computation of running velocity, in Km/h
- 
+ if (idx == 1) 
+    xyz = MPS;                % Replace with your computation of position, the map is 512x512 pixels in size
+    di =[0 1];                  % Replace with your computation for running direction, this should be a 2D unit vector
+    vel = 5;                  % Replace with your computation of running velocity, in Km/h
+
+ else
+    %making the prediction after iteration 2 it computes and estimate the position in iteration 3
+
+    if(idx == 2)
+        % current x-y position is not preditable yet
+        xyz = MPS;
+        fprintf(2,'xyz=[%f %f %f]\n',xyz(1),xyz(2),xyz(3));
+    else
+        xyz(1) = 0.5 * MPS(1) + 0.5 * (pred_xy(1) + prev_xyz(1));                % Replace with your computation of position, the map is 512x512 pixels in size
+        xyz(2) = 0.5 * MPS(2) + 0.5 * (pred_xy(2) + prev_xyz(2));
+        xyz(3) = MPS(3);
+        fprintf(2,'xyz=[%f %f %f]\n',xyz(1),xyz(2),xyz(3));
+    end;
+
+    distance = sqrt((xyz(1) - prev_xyz(1))^2 + (xyz(2) - prev_xyz(2))^2);
+
+    direction_vector_2D = [xyz(1)-prev_xyz(1)
+                            xyz(2)-prev_xyz(2)];
+
+    % Smoother
+    Rg = 0.3 * prev_rg + 0.7 * Rg
+
+    theta = max(min(Rg, delta_t), -delta_t);
+    fprintf(2,'theta=%f\n', theta);
+    
+
+    R=[cos(theta) -sin(theta)
+        sin(theta) cos(theta)];
+
+    di = direction_vector_2D;
+
+    pred_di = R * direction_vector_2D;
+    fprintf(2,'pred_di=[%f %f]\n',pred_di(1),pred_di(2));
+
+    time_interval = 1;
+
+    curr_vel = (distance / time_interval) * (3600 / 1000);
+    curr_vel = max(min(15, curr_vel), 5);       % upper bound and lower bound
+    smoother_coef = abs(curr_vel - prev_vel);
+    smoother_coef = min(10, smoother_coef) / 10;
+
+    smoother_coef = 0.8 * smoother_coef;
+    fprintf(2,'smoother_coef=%f\n', smoother_coef);
+    
+    vel = (1 - smoother_coef) * curr_vel + smoother_coef * prev_vel;
+    fprintf(2,'curr_vel=%f\n', curr_vel);
+    fprintf(2,'prev_vel=%f\n', prev_vel);
+
+    pred_xy = [pred_di(1) / norm(di) * vel * (1000/3600), pred_di(2) / norm(di) * vel * (1000/3600)]
+    fprintf(2,'pred_xy=[%f %f]\n',pred_xy(1),pred_xy(2));
+
+ end;
+
+    hr=82;                  % Replace with your computation of heart rate
+
  if (debug==1)
      figure(5);clf;plot(HRS);
-     fprintf(2,'****** For this frame: *******\n');
+     fprintf(2,'****** For this frame idx = %f: *******\n', idx);
      fprintf(2,'MPS=[%f %f %f]\n',MPS(1),MPS(2),MPS(3));
      fprintf(2,'Rate gyro=%f\n',Rg);
+     fprintf(2,'Distance traveled=%f\n',distance);
+     fprintf(2,'direction_2D=[%f %f]\n',direction_vector_2D(1),direction_vector_2D(2));
      fprintf(2,'---> Press [ENTER] on the Matlab/Octave terminal to continue...\n');
      drawnow;
      pause;
  end;
  
  %%% SOLUTION:   
-  
+
+ prev_xyz = xyz;
+ prev_vel = vel;
+ prev_rg = Rg;
+
  %%%%%%%%%%%%%%%%%%  DO NOT CHANGE ANY CODE BELOW THIS LINE %%%%%%%%%%%%%%%%%%%%%
 
  % Let's use the simulation script to plot your estimates against the real values
