@@ -123,6 +123,20 @@ pkg load image;             %%% UNCOMMENT THIS FOR OCTAVE - Octave is doofus and
 close all;
 %%%%%%%%%% YOU CAN ADD ANY VARIABLES YOU MAY NEED BETWEEN THIS LINE... %%%%%%%%%%%%%%%%%
 
+prev_xyz = [128 128 0.5];
+distance = 0;
+direction_vector_2D = [0 1];
+prev_vel = 5;
+pred_xy = [128 128];
+pred_di = [0 1];
+delta_t = pi/4;
+prev_rg = 0;
+last_five = zeros(1,5);
+hist_theta = [];
+hist_di_error = [];
+prev_hr = 70;
+hist_vel = [];
+
 %%%%%%%%%% ... AND THIS LINE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 idx=1;
@@ -181,24 +195,179 @@ while(idx<=secs)               %% Main simulation loop
  %          corresponding estimate, taken over time. 
  %    
  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Replace with your computation of position, the map is 512x512 pixels in size
+ theta = max(min(Rg, delta_t), -delta_t);
+ % fprintf(2,'theta=%f\n', theta);
 
- xyz=[128 128 .5];       % Replace with your computation of position, the map is 512x512 pixels in size
- hr=82;                  % Replace with your computation of heart rate
- di=[0 1];               % Replace with your computation for running direction, this should be a 2D unit vector
- vel=5;                  % Replace with your computation of running velocity, in Km/h
+ % fprintf(2,'idx=%f\n', idx);
+
+ if (idx == 1) 
+    xyz = MPS;                % Replace with your computation of position, the map is 512x512 pixels in size
+    di =[0 1];                % Replace with your computation for running direction, this should be a 2D unit vector
+    vel = 5;                  % Replace with your computation of running velocity, in Km/h
+
+ else
+    %making the prediction after iteration 2 it computes and estimate the position in iteration 3
+
+    if(idx == 2)
+        % current x-y position is not preditable yet
+        xyz = MPS;
+        % fprintf(2,'xyz=[%f %f %f]\n',xyz(1),xyz(2),xyz(3));
+    else
+        xyz(1) = 0.6 * MPS(1) + 0.4 * (pred_xy(1) + prev_xyz(1));                % Replace with your computation of position, the map is 512x512 pixels in size
+        xyz(2) = 0.6 * MPS(2) + 0.4 * (pred_xy(2) + prev_xyz(2));
+        xyz(3) = MPS(3);
+        % fprintf(2,'xyz=[%f %f %f]\n',xyz(1),xyz(2),xyz(3));
+        % fprintf(2,'xyz_changes=[%f %f]\n',xyz(1)-prev_xyz(1),xyz(2)-prev_xyz(2));
+    end;
+
+    distance = sqrt((xyz(1) - prev_xyz(1))^2 + (xyz(2) - prev_xyz(2))^2);
+
+    direction_vector_2D = [xyz(1)-prev_xyz(1)
+                            xyz(2)-prev_xyz(2)];
+
+    % Smoother
+    Rg = 0.3 * prev_rg + 0.7 * Rg
+
+    R=[cos(mean(hist_theta)) -sin(mean(hist_theta))
+        sin(mean(hist_theta)) cos(mean(hist_theta))];
+
+    % fprintf(2,'mean(hist_theta)=%f]\n',mean(hist_theta));
+
+    pred_di = R * direction_vector_2D;
+    % fprintf(2,'pred_di=[%f %f]\n',pred_di(1),pred_di(2));
+    
+    di_error = abs(atan(di(2)/di(1)) - atan(direction_vector_2D(2)/direction_vector_2D(1)));
+    % fprintf(2,'di_error = %f\n', di_error);
+    hist_di_error(end+1) = di_error;
+    % fprintf(2,'hist_di_error(end)=%f\n', hist_di_error(end));
+
+    if (idx > 10)
+        % fprintf(2,'if (idx > 10)\n');
+        
+        sigma = std(hist_di_error);
+        mean_error = mean(hist_di_error);
+        % fprintf(2,'sigma = %f, mean_error = %f\n', std(hist_di_error), mean(hist_di_error));
+        likelihood_DV2D_coef = (1 / (sqrt(2 * pi * sigma^2))) * exp(-(di_error - mean_error)^2 / (2 * sigma^2));
+        % fprintf(2,'likelihood_DV2D_coef = %f\n', likelihood_DV2D_coef);
+
+        di(1) = mean([0.7 (1 - likelihood_DV2D_coef)]) * di(1) + mean([0.3 (likelihood_DV2D_coef)]) * (0.4 * pred_di(1) + 0.6 * direction_vector_2D(1));
+        di(2) = mean([0.7 (1 - likelihood_DV2D_coef)]) * di(2) + mean([0.3 (likelihood_DV2D_coef)]) * (0.4 * pred_di(2) + 0.6 * direction_vector_2D(2));
+
+        % fprintf(2,'di=[%f %f]\n',di(1),di(2));
+    else
+        % fprintf(2,'if (idx <= 10)\n');
+        di = direction_vector_2D;
+    end;
+
+    time_interval = 1;
+
+    curr_vel = (distance / time_interval) * (3600 / 1000);
+    curr_vel = max(min(15, curr_vel), 5);       % upper bound and lower bound
+    
+    last_five(mod(idx, 5) + 1) = curr_vel; % update the latest five velocity noisy data
+
+    if idx >= 2 && idx < 3
+        % fprintf(2,'if idx >= 2 && idx < 3\n');
+        vel = curr_vel;
+    else if idx >= 3 && idx <= 5  % linear approximation
+        % fprintf(2,'else if idx >= 3 && idx <= 5\n');
+        smoother_coef = abs(curr_vel - mean(hist_vel(2:end)));
+        smoother_coef = min(10, smoother_coef) / 10;
+        smoother_coef = 0.8 * smoother_coef;
+        % fprintf(2,'smoother_coef=%f\n', smoother_coef);
+        vel = (1 - smoother_coef) * curr_vel + smoother_coef * mean(hist_vel(2:end));
+    else    % normalize distributed noise
+        % fprintf(2,'else idx > 5\n');
+        sigma = 1.5; % SD
+        mean_val = mean(last_five);
+        smoother_coef_curr_vel = (1 / (sqrt(2 * pi * sigma^2))) * exp(-(curr_vel - mean_val)^2 / (2 * sigma^2));
+        smoother_coef_prev_vel = (1 / (sqrt(2 * pi * sigma^2))) * exp(-(prev_vel - mean_val)^2 / (2 * sigma^2));
+        % fprintf(2,'smoother_coef_curr_vel=%f\n', smoother_coef_curr_vel);
+        % fprintf(2,'smoother_coef_prev_vel=%f\n', smoother_coef_prev_vel);
+        smoother_coef_sum = smoother_coef_curr_vel + smoother_coef_prev_vel;
+        % fprintf(2,'smoother_coef_sum=%f\n', smoother_coef_sum);
+        % smoother_coef = abs(curr_vel - prev_vel);
+        % smoother_coef = min(10, smoother_coef) / 10;
+        % smoother_coef = 0.8 * smoother_coef;
+        % fprintf(2,'smoother_coef=%f\n', smoother_coef);
+        % vel = mean([(smoother_coef_curr_vel / smoother_coef_sum) (1 - smoother_coef)]) * curr_vel + mean([(smoother_coef_prev_vel / smoother_coef_sum) smoother_coef]) * prev_vel;
+        vel = smoother_coef_curr_vel * curr_vel + smoother_coef_prev_vel * prev_vel + (1 - smoother_coef_sum) * (0.5 * mean_val + 0.5 * mean(hist_vel(end-4:end)));
+    end;
+    end;
+
+    % fprintf(2,'idx=%f\n', idx);
+
+    % fprintf(2,'curr_vel=%f\n', curr_vel);
+    % fprintf(2,'prev_vel=%f\n', prev_vel);
+    % fprintf(2,'vel=%f\n', vel);
+
+    pred_xy = [di(1) / norm(di) * vel * (1000/3600), di(2) / norm(di) * vel * (1000/3600)]
+    % fprintf(2,'pred_xy=[%f %f]\n',pred_xy(1),pred_xy(2));
+
+ end;
+
+
+% Remove DC component
+ HRS = HRS - mean(HRS);
  
+ Fs = 3500;  % Sampling frequency
+ L = length(HRS);  % Length of the signal
+
+ % Continue with your FFT calculations
+ Y = fft(HRS);
+ P2 = abs(Y/L);
+ P1 = P2(1:L/2+1);
+ P1(2:end-1) = 2*P1(2:end-1);
+ 
+ f = Fs*(0:(L/2))/L;
+ 
+ %% Plot the amplitude spectrum
+ %figure(6);
+ %plot(f, P1);
+ %title('Single-Sided Amplitude Spectrum of HRS Signal');
+ %xlabel('Frequency (Hz)');
+ %ylabel('|P1(f)|');
+ 
+ % Find the peak in the spectrum
+ [sorted_P1, sorted_indices] = sort(P1, 'descend');
+ top_frequencies = f(sorted_indices(1:7));
+ top_indices = sorted_indices(1:7);
+ 
+ filtered_frequencies = [];
+
+ for k = 1:length(top_indices)
+    if abs(f(top_indices(k)) - prev_hr) < 25
+        filtered_frequencies(end+1) = f(top_indices(k));
+    end;
+ end;
+
+ % [~, i] = max(P1);  % Index of the peak frequency
+ hr = max(filtered_frequencies);  % Dominant frequency in Hz
+ 
+ % Print the index
+ % fprintf(2, 'i=%d\n', i);  % Correctly prints idx as an integer
+
  if (debug==1)
      figure(5);clf;plot(HRS);
-     fprintf(2,'****** For this frame: *******\n');
+     fprintf(2,'****** For this frame idx = %f: *******\n', idx);
      fprintf(2,'MPS=[%f %f %f]\n',MPS(1),MPS(2),MPS(3));
      fprintf(2,'Rate gyro=%f\n',Rg);
+     fprintf(2,'Distance traveled=%f\n',distance);
+     fprintf(2,'direction_2D=[%f %f]\n',direction_vector_2D(1),direction_vector_2D(2));
      fprintf(2,'---> Press [ENTER] on the Matlab/Octave terminal to continue...\n');
      drawnow;
      pause;
  end;
  
  %%% SOLUTION:   
-  
+
+ prev_xyz = xyz;
+ prev_vel = vel;
+ prev_hr = hr;
+ hist_theta(end + 1) = theta;
+ hist_vel(end + 1) = vel;
+
  %%%%%%%%%%%%%%%%%%  DO NOT CHANGE ANY CODE BELOW THIS LINE %%%%%%%%%%%%%%%%%%%%%
 
  % Let's use the simulation script to plot your estimates against the real values

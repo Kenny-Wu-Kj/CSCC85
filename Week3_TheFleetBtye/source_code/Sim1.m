@@ -251,12 +251,18 @@ R=[cos(dang) -sin(dang)
 d=R*d;
 
 Rg=dr+(Rgnoise*randn(1));
+% fprintf(2,'Actual_Rg=%f\n',Rg);
+% fprintf(2,'Actual_dang=%f\n',dang);
+% fprintf(2,'Actual_d=[%f %f]\n',d(1),d(2));
 
 hist_spd(end+1)=spd;
 hist_HR(end+1)=HR;
 hist_dr(end+1,:)=d;
 hist_XYZ(end+1,:)=XYZ;
-
+fprintf(2,'Actual_XYZ=[%f %f %f]\n',XYZ(1),XYZ(2),XYZ(3));
+if(frame > 0)
+    fprintf(2,'Actual_XY_changes=[%f %f]\n',XYZ(1) - hist_XYZ(end-1,1), XYZ(2) - hist_XYZ(end-1,2));
+end;
 frame=frame+1;
 
 HRS = HRS_pers;
