@@ -185,7 +185,9 @@ double T_angle(ThrusterType thruster){
     case left_thruster:
       return - atan2(vertical_acc, horizontal_acc);
     case right_thruster:
-      return atan2(vertical_acc, horizontal_acc);
+      printf("T_angle: %f", (M_PI - atan2(vertical_acc, horizontal_acc)) * 180 / M_PI);
+      printf("atan2(vertical_acc, horizontal_acc): %f", atan2(vertical_acc, horizontal_acc));
+      return M_PI - atan2(vertical_acc, horizontal_acc);
     default:
       fprintf(stderr,"Thruster type DNE!\n");
       return THRUSTER_TYPE_FAILURE;
@@ -244,6 +246,31 @@ double angle_normalizer(double angle){
         angle += 360.0;  // Ensure the angle is positive
     }
     return angle;
+}
+
+// Exclusive Control
+void Thruster_Control(ThrusterType thruster, double power){
+  switch (thruster)
+  {
+  case main_thruster:
+    Main_Thruster(power);
+    Right_Thruster(0);
+    Left_Thruster(0);
+    break;
+  case left_thruster:
+    Main_Thruster(0);
+    Right_Thruster(power);
+    Left_Thruster(0);
+    break;
+  case right_thruster:
+    Main_Thruster(0);
+    Right_Thruster(power);
+    Left_Thruster(0);
+    break;
+  default:
+    fprintf(stderr,"Thruster type DNE!\n");
+    break;
+  }
 }
 
 void Rotate_to_Angle(double theta) {
@@ -408,75 +435,93 @@ void Lander_Control(void)
   if (Velocity_Y()<VYlim) Main_Thruster(1.0);
   else Main_Thruster(0);
 
- } else if (MT_OK) {
+ } else {
+    
+    //Control Components Fault
 
-    Left_Thruster(0);
-    Right_Thruster(0);
+    ThrusterType thruster;
+    double power;
+    double angle;
 
-    // fprintf(stderr,"Using main truster only!\n");
-
-    // Failure detected
-    printf("T_angle(main_thruster)=%f,T_power(main_thruster)=%f\n", T_angle(main_thruster), T_power(main_thruster));
-    // Rotate_to_Angle(T_angle(main_thruster));
-    // Main_Thruster(T_power(main_thruster));
+    if(MT_OK) thruster = main_thruster;
+    else if(RT_OK) thruster = right_thruster;
+    else if(LT_OK) thruster = left_thruster;
+    else{ //Error Handler, no way to save the lander.
+      Main_Thruster(1);
+      Left_Thruster(1);
+      Right_Thruster(1);
+      fprintf(stderr,"We are going to crush!\n");
+    }
+    // Right_Thruster(0);
+    // Left_Thruster(0);
 
     if (fabs(Position_X()-PLAT_X)>200) VXlim=15;
     else if (fabs(Position_X()-PLAT_X)>100) VXlim=10;
     else if (fabs(Position_X()-PLAT_X)>35) VXlim=5;
-    else VXlim=3;
+    else if (fabs(Position_X()-PLAT_X)>10) VXlim=3;
+    else VXlim=0;
 
     if (PLAT_Y-Position_Y()>200) VYlim=-20;
-    else if (PLAT_Y-Position_Y()>100) VYlim=-10;  // These are negative because they
-    else VYlim=-4;				       // limit descent velocity
+    else if (PLAT_Y-Position_Y()>100) VYlim=-10;
+    else if (fabs(Position_X()-PLAT_X)>60) VXlim=-4;  // These are negative because they
+    else VYlim=-2;				       // limit descent velocity
 
-    // Ensure we will be OVER the platform when we land
-    if (fabs(PLAT_X-Position_X())/fabs(Velocity_X())>1.25*fabs(PLAT_Y-Position_Y())/fabs(Velocity_Y())) VYlim=-1;
+    double y_d = fabs(PLAT_Y-Position_Y());
+    double x_d = fabs(PLAT_X-Position_X());
+    printf("fabs(PLAT_Y-Position_Y()) = %f\n", y_d);
+    printf("fabs(PLAT_X-Position_X()) = %f\n", x_d);
 
-    // Calculated the general 
-    if (Position_X()>PLAT_X)
-    {
-      // lander to the left.
-      printf("fabs(PLAT_Y-Position_Y()) = %f\n", fabs(PLAT_Y-Position_Y()));
-      printf("fmax(1.0, (35/fabs(PLAT_Y-Position_Y()))) = %f\n", fmax(1.0, pow((150/fabs(PLAT_Y-Position_Y())), 1.5)));
-      printf("(VXlim+fmin(0,Velocity_X())) = %f\n", (VXlim+fmin(0,Velocity_X())));
-      if (Velocity_X()>(-VXlim)) horizontal_acc = - fmax(1.0, pow((150/fabs(PLAT_Y-Position_Y())), 1.5)) * (VXlim+fmin(0,Velocity_X()))/4;
-      // Exceeded velocity limit, brake
-      else horizontal_acc = 2 * fabs(VXlim-Velocity_X()) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmax(1.0, (35/fabs(PLAT_X-Position_X())));
+    if(x_d<=22.0 && y_d<=30.0){
+      printf("going to landing\n");
+      power = 0;
+      angle = 0;
+
+    }else{
+      // Ensure we will be OVER the platform when we land
+      if (fabs(PLAT_X-Position_X())/(1 + fabs(Velocity_X()))>1.25*fabs(PLAT_Y-Position_Y())/fabs(Velocity_Y()))
+      {printf("we got here\n");VYlim=-1;}
+
+      // Calculated the general 
+
+      // Adjust VXlim
+      if (Position_X()>PLAT_X)
+      {
+        // lander to the left.
+        if (Velocity_X()>(-VXlim)) horizontal_acc = - fmax(1.0, pow((150/fabs(PLAT_Y-Position_Y())), 1.5)) * (VXlim+fmin(0,Velocity_X()))/4;
+        // Exceeded velocity limit, brake
+        else horizontal_acc = 2 * fabs(VXlim-Velocity_X()) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmax(1.0, (35/fabs(PLAT_X-Position_X())));
+      }
+      else
+      {
+        // Lander is to the RIGHT of the landing platform, opposite from above
+        if (Velocity_X()<VXlim) horizontal_acc = fmax(1.0, pow((150/fabs(PLAT_Y-Position_Y())), 1.5)) * (VXlim-fmax(0,Velocity_X()))/4;
+        // Exceeded velocity limit, brake
+        else horizontal_acc = - 2 * fabs(VXlim-Velocity_X()) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmax(1.0, (35/fabs(PLAT_X-Position_X())));
+      }
+
+      // Adjust VYlim
+      if (Velocity_Y()<VYlim) vertical_acc = G_ACCEL + fmax(0,VYlim-Velocity_Y());
+      else{
+        printf("winthin the VYlim\n");
+        double time = (x_d)/(1 + fabs(Velocity_X()));
+        double distance = y_d - 30;
+        double acc = 2 * (distance - Velocity_Y() * time) / pow(time, 2);
+        printf("time:%f; distance:%f; acc:%f\n", time, distance, acc);
+        vertical_acc = fmax(0, (G_ACCEL - fmax(0, acc)-1));
+      } 
+
+      printf("NEXT horizontal_acc=%f,vertical_acc=%f\n", horizontal_acc, vertical_acc);
+
+      angle = T_angle(thruster); //Rotation diff calculated
+      power = T_power(thruster); //Max power diff calculated
 
     }
-    else
-    {
-      // Lander is to the RIGHT of the landing platform, opposite from above
-      printf("fabs(PLAT_Y-Position_Y()) = %f\n", fabs(PLAT_Y-Position_Y()));
-      printf("fmax(1.0, (35/fabs(PLAT_Y-Position_Y()))) = %f\n", fmax(1.0, pow((150/fabs(PLAT_Y-Position_Y())), 1.5)));
-      printf("(VXlim-fmax(0,Velocity_X())) = %f\n",  (VXlim-fmax(0,Velocity_X())));
-      if (Velocity_X()<VXlim) horizontal_acc = fmax(1.0, pow((150/fabs(PLAT_Y-Position_Y())), 1.5)) * (VXlim-fmax(0,Velocity_X()))/4;
-      // Exceeded velocity limit, brake
-      else horizontal_acc = - 2 * fabs(VXlim-Velocity_X()) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmax(1.0, (35/fabs(PLAT_X-Position_X())));
-    }
 
-    printf("fabs(PLAT_X-Position_X()) = %f\n", fabs(PLAT_X-Position_X()));
-    if (Velocity_Y()<VYlim) vertical_acc = G_ACCEL + fmax(0,VYlim-Velocity_Y());
-    else vertical_acc = G_ACCEL + fmin(0,VYlim-Velocity_Y());
-
-    if(fabs(PLAT_X-Position_X())<=10.0 && fabs(PLAT_Y-Position_Y())<=30.0){
-        horizontal_acc = 0;
-        vertical_acc = 2;
-    }
-
-    printf("NEXT horizontal_acc=%f,vertical_acc=%f\n", horizontal_acc, vertical_acc);
-    
-    Rotate_to_Angle(T_angle(main_thruster));
-    Main_Thruster(T_power(main_thruster));
-    printf("After angle=%f\n", Angle());
-
- } else if (RT_OK) {
-
- } else if (LT_OK) {
-
- } else {
-   fprintf(stderr,"We are going to crush!\n");
+    //Thrust the result;
+    Rotate_to_Angle(angle);
+    Thruster_Control(thruster, power);
  }
+
 }
 
 void Safety_Override(void)
