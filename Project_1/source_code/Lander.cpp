@@ -185,8 +185,8 @@ double T_angle(ThrusterType thruster){
     case left_thruster:
       return - atan2(vertical_acc, horizontal_acc);
     case right_thruster:
-      printf("T_angle: %f", (M_PI - atan2(vertical_acc, horizontal_acc)) * 180 / M_PI);
-      printf("atan2(vertical_acc, horizontal_acc): %f", atan2(vertical_acc, horizontal_acc));
+      // printf("T_angle: %f", (M_PI - atan2(vertical_acc, horizontal_acc)) * 180 / M_PI);
+      // printf("atan2(vertical_acc, horizontal_acc): %f", atan2(vertical_acc, horizontal_acc));
       return M_PI - atan2(vertical_acc, horizontal_acc);
     default:
       fprintf(stderr,"Thruster type DNE!\n");
@@ -259,8 +259,8 @@ void Thruster_Control(ThrusterType thruster, double power){
     break;
   case left_thruster:
     Main_Thruster(0);
-    Right_Thruster(power);
-    Left_Thruster(0);
+    Right_Thruster(0);
+    Left_Thruster(power);
     break;
   case right_thruster:
     Main_Thruster(0);
@@ -506,7 +506,7 @@ void Lander_Control(void)
         double time = (x_d)/(1 + fabs(Velocity_X()));
         double distance = y_d - 30;
         double acc = 2 * (distance - Velocity_Y() * time) / pow(time, 2);
-        printf("time:%f; distance:%f; acc:%f\n", time, distance, acc);
+        
         vertical_acc = fmax(0, (G_ACCEL - fmax(0, acc)-1));
       } 
 
@@ -516,7 +516,8 @@ void Lander_Control(void)
       power = T_power(thruster); //Max power diff calculated
 
     }
-
+    
+    printf("angle:%f; thruster:%d; power:%f\n", angle, thruster, power);
     //Thrust the result;
     Rotate_to_Angle(angle);
     Thruster_Control(thruster, power);
