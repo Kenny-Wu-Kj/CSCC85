@@ -177,6 +177,183 @@ double horizontal_acc = 0;
 double vertical_acc = G_ACCEL;
 //double T_angle = 0;
 
+double Prev_X_Pos[100];
+double Prev_Y_Pos[100];
+double Prev_X_Vel[100];
+
+// Vx_Reading has built-in Noise on its own
+// Vx_Computing is affected by X_Pos Noise * 2 (Subtraction)
+// Vx_Predicting is affected by the previous Noisy reading/computing
+double Vx_Computing_vs_Reading_Noise[99];
+double Vx_Predicting_vs_Reading_diff[99];
+double Vx_Predicting_vs_Computing_diff[98];
+
+double Prev_Y_Vel[100];
+double MAX_ERR = 0;
+int Err_Tolerant = 2;
+
+int frames = 0;
+
+double findMax(double arr[], int size) {
+    // Initialize the first element as the maximum
+    double max = fabs(arr[0]);
+
+    // Iterate through the array and update max if a larger element is found
+    for (int i = 1; i < size; i++) {
+        if (fabs(arr[i]) > max) {
+            max = fabs(arr[i]);
+        }
+    }
+
+    return max;
+}
+
+// Position_X(), Position_Y(), Velocity_X(), Velocity_Y() might unreliable
+// BUT the initial X_Pos is given correctly with small noise
+// We Substitude them using another functions
+
+  // Base case: we know the initial noisy x and y position,
+  //            initial noisy x and y velocity
+  
+  // How to know the sensor is not working any more?
+  // We calculate the SD of difference between predicted and captured history position/velocity
+  // Use this SD to decide wether the next captured data is false
+  // If the next captured data is false we ignore it.
+  // And we would use our prediction instead.
+
+  // Let is assume the first 5 frames are reliable
+  // After the first 5 frames
+  // Sense -> Predict -> Compare
+
+double Robust_Position_X(){
+
+  double temp_reading_x = 0;
+  for(int i = 0; i < 60; i++){
+    temp_reading_x += Position_X();
+    //printf("temp_reading_x = %f\n", temp_reading_x);
+  }
+
+  temp_reading_x /= 60; 
+  printf("temp_reading_x = %f\n", temp_reading_x);
+
+  if(frames < 99){
+    Prev_X_Pos[frames] = temp_reading_x;
+    return temp_reading_x;
+  }
+
+  return temp_reading_x;
+}
+
+double Robust_Velocity_X(){
+
+  double temp_reading_Vx = Velocity_X();
+  double predicting_curr_Vx = 0;
+  double acc_factor = 120;
+
+  if(frames == 0){
+    Prev_X_Vel[frames] = temp_reading_Vx; // Stored
+    return temp_reading_Vx;
+
+  }else if(frames < 99){
+    Prev_X_Vel[frames] = temp_reading_Vx; // Stored
+
+    // Our first record on our actual noisy velocity in the previous frame.
+
+    //double computing_prev_Vx = (Robust_Postion_X() - Prev_X_Pos[frames-1]);
+    predicting_curr_Vx = Prev_X_Vel[frames-1] + horizontal_acc / acc_factor;
+
+    if(frames >= 49 && frames < 99){
+      double computing_prev_Vx = (0.5 * Robust_Position_X() + 0.5 * Prev_X_Pos[frames-1] - 0.5 * Prev_X_Pos[frames-49] - 0.5 * Prev_X_Pos[frames-48]) / 49 * 40;
+      printf("computing_prev_Vx = %f\n", computing_prev_Vx);
+      double mean = 0;
+      for (int i = 0; i < 50; i++){
+        mean += Prev_X_Vel[frames-i];
+      }
+      mean /= 50;
+      printf("mean = %f\n", mean);
+      Vx_Computing_vs_Reading_Noise[frames-49] = mean - computing_prev_Vx; // 1 frame is 1 sec
+      printf("Vx_Computing_vs_Reading_Noise = %f\n", Vx_Computing_vs_Reading_Noise[frames-49]);
+      
+      // use the computing result instead of reading to predict
+
+      // double comp_then_pred = computing_prev_Vx + horizontal_acc * 49 / 120 / 2;
+
+      // printf("comp_then_pred = %f\n", comp_then_pred);
+
+      // double comp_pred_vs_reading = comp_then_pred - temp_reading_Vx;
+
+      // printf("comp_pred_vs_reading = %f\n", comp_pred_vs_reading);
+    }
+    
+    Vx_Predicting_vs_Reading_diff[frames-1] = predicting_curr_Vx - temp_reading_Vx;
+
+    printf("Frames# : %d\n",frames);
+    printf("Velocity_X() = %f\n", temp_reading_Vx);
+    //printf("computing_prev_Vx = %f\n", computing_prev_Vx);
+    printf("horizontal_acc = %f\n", horizontal_acc);
+    
+    printf("Vx_Predicting_vs_Reading_diff = %f\n", Vx_Predicting_vs_Reading_diff[frames-1]);
+    
+    // Use Predicting vs Use Reading?
+    // Reading could go very wrong as we continue,
+    // So if we trust the previous result we can doubt whether we can trust the reading or not.
+
+    // Because we assumed the first 5 is okay to take, we trust reading but need to record diff!
+    return temp_reading_Vx;
+
+  } else if (frames == 99){
+    // Right now we have the diff data for our predication function
+    // we will use this data to attest the authentication of next X_velocity
+
+    MAX_ERR = findMax(Vx_Predicting_vs_Reading_diff, 99);
+
+    printf("MAX_ERR = %f\n", MAX_ERR);
+
+    predicting_curr_Vx = Prev_X_Vel[frames-1] + horizontal_acc / acc_factor;
+
+
+  } else {
+
+    predicting_curr_Vx = Prev_X_Vel[99] + horizontal_acc / acc_factor;
+
+    printf("Prev_X_Vel[99] = %f\n", Prev_X_Vel[99]);
+    printf("horizontal_acc = %f\n", horizontal_acc);
+
+  }
+
+  Prev_X_Vel[99] = temp_reading_Vx;
+
+  double predicting_error = predicting_curr_Vx - temp_reading_Vx;
+
+  printf("temp_reading_Vx = %f\n", temp_reading_Vx);
+  printf("predicting_curr_Vx = %f\n", predicting_curr_Vx);
+  printf("predicting_error = %f\n", predicting_error);
+
+  if(fabs(predicting_error) > MAX_ERR){
+    
+    printf("1\n");
+    Err_Tolerant = 0;
+
+    Prev_X_Vel[99] = predicting_curr_Vx;
+
+    printf("Robust_Velocity_X = %f\n", predicting_curr_Vx);
+
+    return predicting_curr_Vx;
+
+  }else if(Err_Tolerant < 2){
+    printf("2\n");
+    Err_Tolerant = fmin(Err_Tolerant + 1, 2);
+    Prev_X_Vel[99] = predicting_curr_Vx;
+    printf("Robust_Velocity_X = %f\n", predicting_curr_Vx);
+    return predicting_curr_Vx;
+  
+  }
+  printf("3\n");
+  printf("Robust_Velocity_X = %f\n", temp_reading_Vx);
+  return temp_reading_Vx;
+    
+}
+
 double T_angle(ThrusterType thruster){
   switch (thruster) {
     case main_thruster:
@@ -365,23 +542,27 @@ void Lander_Control(void)
   // fprintf(stderr,"Hiii!\n");
 
  if (MT_OK && RT_OK && LT_OK) {
-  fprintf(stderr,"Hiii!\n");
+  //fprintf(stderr,"Hiii!\n");
+
+  double x_pos = Robust_Position_X();
+  double Vx = Robust_Velocity_X();
+
   // Set velocity limits depending on distance to platform.
   // If the module is far from the platform allow it to
   // move faster, decrease speed limits as the module
   // approaches landing. You may need to be more conservative
   // with velocity limits when things fail.
-  if (fabs(Position_X()-PLAT_X)>200) VXlim=25;
-  else if (fabs(Position_X()-PLAT_X)>100) VXlim=15;
-  else if (fabs(Position_X()-PLAT_X)>35) VXlim=5;
-  else VXlim=2;
+  if (fabs(x_pos-PLAT_X)>200) VXlim=25;
+  else if (fabs(x_pos-PLAT_X)>100) VXlim=15;
+  //else if (fabs(x_pos-PLAT_X)>35) VXlim=5;
+  else VXlim=5;
 
   if (PLAT_Y-Position_Y()>200) VYlim=-20;
   else if (PLAT_Y-Position_Y()>100) VYlim=-10;  // These are negative because they
   else VYlim=-4;				       // limit descent velocity
 
   // Ensure we will be OVER the platform when we land
-  if (fabs(PLAT_X-Position_X())/fabs(Velocity_X())>1.25*fabs(PLAT_Y-Position_Y())/fabs(Velocity_Y())) VYlim=0;
+  if (fabs(PLAT_X-x_pos)/fabs(Vx)>1.25*fabs(PLAT_Y-Position_Y())/fabs(Velocity_Y())) VYlim=0;
 
   // IMPORTANT NOTE: The code below assumes all components working
   // properly. IT MAY OR MAY NOT BE USEFUL TO YOU when components
@@ -399,41 +580,72 @@ void Lander_Control(void)
   {
     if (Angle()>=180) Rotate(360-Angle());
     else Rotate(-Angle());
+
+    //Assume we only Rotate
+    //horizontal_acc = 0;
+    vertical_acc = -1 * G_ACCEL;
+    frames++;
+
     return;
   }
 
+  double temp_power;
+
   // Module is oriented properly, check for horizontal position
   // and set thrusters appropriately.
-  if (Position_X()>PLAT_X)
+  if (x_pos>PLAT_X)
   {
     // Lander is to the LEFT of the landing platform, use Right thrusters to move
     // lander to the left.
     Left_Thruster(0);	// Make sure we're not fighting ourselves here!
-    if (Velocity_X()>(-VXlim)) Right_Thruster((VXlim+fmin(0,Velocity_X()))/VXlim);
+    if (Vx>(-VXlim)){
+      printf("Towards the left\n");
+      temp_power = (VXlim+fmin(0,Vx))/VXlim;
+      Right_Thruster(temp_power);
+      horizontal_acc = -0.40 * temp_power * RT_ACCEL;
+    } 
     else
     {
-    // Exceeded velocity limit, brake
-    Right_Thruster(0);
-    Left_Thruster(fabs(VXlim-Velocity_X()));
+      // Exceeded velocity limit, brake
+      printf("go left too fast\n");
+      Right_Thruster(0);
+      temp_power = fabs(VXlim-Vx);
+      Left_Thruster(temp_power);
+      horizontal_acc = 0.45 * fmin(1, temp_power) * LT_ACCEL;
     }
   }
   else
   {
     // Lander is to the RIGHT of the landing platform, opposite from above
     Right_Thruster(0);
-    if (Velocity_X()<VXlim) Left_Thruster((VXlim-fmax(0,Velocity_X()))/VXlim);
-    else
-    {
-    Left_Thruster(0);
-    Right_Thruster(fabs(VXlim-Velocity_X()));
+    if (Vx<VXlim){
+      printf("Towards the right\n");
+      temp_power = (VXlim-fmax(0,Vx))/VXlim;
+      Left_Thruster(temp_power);
+      horizontal_acc = 0.40 * temp_power * LT_ACCEL;
+    } else
+    { 
+      printf("go right too fast\n");
+      Left_Thruster(0);
+      temp_power = fabs(VXlim-Vx);
+      Right_Thruster(temp_power);
+      horizontal_acc = -0.45 * fmin(1, temp_power) * RT_ACCEL; // avg of 0 & temp_power
     }
   }
 
   // Vertical adjustments. Basically, keep the module below the limit for
   // vertical velocity and allow for continuous descent. We trust
   // Safety_Override() to save us from crashing with the ground.
-  if (Velocity_Y()<VYlim) Main_Thruster(1.0);
-  else Main_Thruster(0);
+  if (Velocity_Y()<VYlim){
+    Main_Thruster(1.0);
+    vertical_acc = MT_ACCEL;
+  } 
+  else{
+    Main_Thruster(0);
+    vertical_acc = 0;
+  }
+
+  frames++;
 
  } else {
     
@@ -507,7 +719,7 @@ void Lander_Control(void)
         double distance = y_d - 30;
         double acc = 2 * (distance - Velocity_Y() * time) / pow(time, 2);
         
-        vertical_acc = fmax(0, (G_ACCEL - fmax(0, acc)-1));
+        vertical_acc = fmax(0, (G_ACCEL - fmax(0, acc) - 1));
       } 
 
       printf("NEXT horizontal_acc=%f,vertical_acc=%f\n", horizontal_acc, vertical_acc);
