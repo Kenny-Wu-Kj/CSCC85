@@ -177,6 +177,8 @@ double horizontal_acc = 0;
 double vertical_acc = G_ACCEL;
 //double T_angle = 0;
 
+double X_Predicting_vs_Reading_diff[99];
+
 double Prev_X_Pos[100];
 double Prev_Y_Pos[100];
 double Prev_X_Vel[100];
@@ -189,10 +191,12 @@ double Vx_Predicting_vs_Reading_diff[99];
 double Vx_Predicting_vs_Computing_diff[98];
 
 double Prev_Y_Vel[100];
-double MAX_ERR = 0;
+double VX_MAX_ERR = 0;
+double X_MAX_ERR = 0;
 double time_factor = 120;
-double time_factor_coefs[3][4] = {{150,350,340,220},{220,320,340,300},{200,320,320,280}};
-int Err_Tolerant = 2;
+double time_factor_coefs[3][4] = {{220,240,320,220},{260,230,320,280},{220,240,320,280}};
+int Vx_Err_Tolerant = 2;
+int X_Err_Tolerant = 2;
 
 int frames = 0;
 
@@ -230,6 +234,9 @@ double findMax(double arr[], int size) {
 double Robust_Position_X(){
 
   double temp_reading_x = 0;
+  double predicting_curr_X = 0;
+  double vel_factor = 20;
+
   for(int i = 0; i < 60; i++){
     temp_reading_x += Position_X();
     //printf("temp_reading_x = %f\n", temp_reading_x);
@@ -238,12 +245,80 @@ double Robust_Position_X(){
   temp_reading_x /= 60; 
   printf("temp_reading_x = %f\n", temp_reading_x);
 
-  if(frames < 99){
+  if(frames <= 3){
+
     Prev_X_Pos[frames] = temp_reading_x;
     return temp_reading_x;
+
+  } else if(frames < 99){
+    
+    Prev_X_Pos[frames] = temp_reading_x;
+
+    predicting_curr_X = 0.25 * Prev_X_Pos[frames-1] + 0.25 * Prev_X_Pos[frames-2] + 0.25 * Prev_X_Pos[frames-3] + 0.25 * Prev_X_Pos[frames-4] +
+                        (0.5 * Prev_X_Vel[frames-1] + 0.375 * Prev_X_Vel[frames-2] + 0.25 * Prev_X_Vel[frames-3] + 0.125* Prev_X_Vel[frames-4])/vel_factor;
+
+    X_Predicting_vs_Reading_diff[frames-2] = predicting_curr_X - temp_reading_x;
+
+    printf("X_Predicting_vs_Reading_diff = %f\n", X_Predicting_vs_Reading_diff[frames-1]);
+
+    return temp_reading_x;
+
+  } else if(frames == 99){
+
+    X_MAX_ERR = findMax(X_Predicting_vs_Reading_diff, 99);
+
+    printf("X_MAX_ERR = %f\n", X_MAX_ERR);
+
+    predicting_curr_X = 0.25 * Prev_X_Pos[frames-1] + 0.25 * Prev_X_Pos[frames-2] + 0.25 * Prev_X_Pos[frames-3] + 0.25 * Prev_X_Pos[frames-4] +
+                        (0.5 * Prev_X_Vel[frames-1] + 0.375 * Prev_X_Vel[frames-2] + 0.25 * Prev_X_Vel[frames-3] + 0.125* Prev_X_Vel[frames-4])/vel_factor;
+
+    Prev_X_Pos[99] = temp_reading_x;
+
+  } else{
+
+    predicting_curr_X = 0.25 * Prev_X_Pos[99] + 0.25 * Prev_X_Pos[98] + 0.25 * Prev_X_Pos[97] + 0.25 * Prev_X_Pos[96] +
+                        (0.5 * Prev_X_Vel[99] + 0.375 * Prev_X_Vel[98] + 0.25 * Prev_X_Vel[97] + 0.125* Prev_X_Vel[96])/vel_factor;
+
+    //printf("Prev_X_Vel[99] = %f\n", Prev_X_Vel[99]);
+    //printf("Prev_X_Vel[98] = %f\n", Prev_X_Vel[98]);
+    //printf("Prev_X_Vel[97] = %f\n", Prev_X_Vel[97]);
+    //printf("Prev_X_Vel[96] = %f\n", Prev_X_Vel[96]);
+
+    Prev_X_Pos[96] = Prev_X_Pos[97];
+    Prev_X_Pos[97] = Prev_X_Pos[98];
+    Prev_X_Pos[98] = Prev_X_Pos[99];
+    Prev_X_Pos[99] = temp_reading_x;
   }
 
+  double predicting_error = predicting_curr_X - temp_reading_x;
+
+  //printf("predicting_curr_X = %f\n", predicting_curr_X);
+  //printf("temp_reading_x = %f\n", temp_reading_x);
+  //printf("predicting_error = %f\n", predicting_error);
+
+  if(fabs(predicting_error) > 5 * X_MAX_ERR){
+    
+    printf("1 -x\n");
+    X_Err_Tolerant = 0;
+
+    Prev_X_Pos[99] = predicting_curr_X;
+
+    printf("Robust_Position_X = %f\n", predicting_curr_X);
+
+    return predicting_curr_X;
+
+  }else if(X_Err_Tolerant < 2){
+    printf("2 -x\n");
+    X_Err_Tolerant = fmin(X_Err_Tolerant + 1, 2);
+    Prev_X_Pos[99] = predicting_curr_X;
+    printf("Robust_Position_X = %f\n", predicting_curr_X);
+    return predicting_curr_X;
+  
+  }
+  printf("3 -x\n");
+  printf("Robust_Position_X = %f\n", temp_reading_x);
   return temp_reading_x;
+
 }
 
 double Robust_Velocity_X(){
@@ -266,15 +341,15 @@ double Robust_Velocity_X(){
 
     if(frames >= 49 && frames < 99){
       double computing_prev_Vx = (0.5 * Robust_Position_X() + 0.5 * Prev_X_Pos[frames-1] - 0.5 * Prev_X_Pos[frames-49] - 0.5 * Prev_X_Pos[frames-48]) / 49 * 40;
-      printf("computing_prev_Vx = %f\n", computing_prev_Vx);
+      // printf("computing_prev_Vx = %f\n", computing_prev_Vx);
       double mean = 0;
       for (int i = 0; i < 50; i++){
         mean += Prev_X_Vel[frames-i];
       }
       mean /= 50;
-      printf("mean = %f\n", mean);
+      // printf("mean = %f\n", mean);
       Vx_Computing_vs_Reading_Noise[frames-49] = mean - computing_prev_Vx; // 1 frame is 1 sec
-      printf("Vx_Computing_vs_Reading_Noise = %f\n", Vx_Computing_vs_Reading_Noise[frames-49]);
+      // printf("Vx_Computing_vs_Reading_Noise = %f\n", Vx_Computing_vs_Reading_Noise[frames-49]);
       
       // use the computing result instead of reading to predict
 
@@ -307,34 +382,38 @@ double Robust_Velocity_X(){
     // Right now we have the diff data for our predication function
     // we will use this data to attest the authentication of next X_velocity
 
-    MAX_ERR = findMax(Vx_Predicting_vs_Reading_diff, 99);
+    VX_MAX_ERR = findMax(Vx_Predicting_vs_Reading_diff, 99);
 
-    printf("MAX_ERR = %f\n", MAX_ERR);
+    // printf("VX_MAX_ERR = %f\n", VX_MAX_ERR);
 
     predicting_curr_Vx = Prev_X_Vel[frames-1] + horizontal_acc / acc_factor;
 
+    Prev_X_Vel[99] = temp_reading_Vx;
 
   } else {
 
     predicting_curr_Vx = Prev_X_Vel[99] + horizontal_acc / acc_factor;
 
-    printf("Prev_X_Vel[99] = %f\n", Prev_X_Vel[99]);
-    printf("horizontal_acc = %f\n", horizontal_acc);
+    // printf("Prev_X_Vel[99] = %f\n", Prev_X_Vel[99]);
+    // printf("horizontal_acc = %f\n", horizontal_acc);
+
+    Prev_X_Vel[96] = Prev_X_Vel[97];
+    Prev_X_Vel[97] = Prev_X_Vel[98];
+    Prev_X_Vel[98] = Prev_X_Vel[99];
+    Prev_X_Vel[99] = temp_reading_Vx;
 
   }
 
-  Prev_X_Vel[99] = temp_reading_Vx;
-
   double predicting_error = predicting_curr_Vx - temp_reading_Vx;
 
-  printf("temp_reading_Vx = %f\n", temp_reading_Vx);
-  printf("predicting_curr_Vx = %f\n", predicting_curr_Vx);
-  printf("predicting_error = %f\n", predicting_error);
+  // printf("temp_reading_Vx = %f\n", temp_reading_Vx);
+  // printf("predicting_curr_Vx = %f\n", predicting_curr_Vx);
+  // printf("predicting_error = %f\n", predicting_error);
 
-  if(fabs(predicting_error) > 10 * MAX_ERR){
+  if(fabs(predicting_error) > 10 * VX_MAX_ERR){
     
     printf("1\n");
-    Err_Tolerant = 0;
+    Vx_Err_Tolerant = 0;
 
     Prev_X_Vel[99] = predicting_curr_Vx;
 
@@ -342,9 +421,9 @@ double Robust_Velocity_X(){
 
     return predicting_curr_Vx;
 
-  }else if(Err_Tolerant < 2){
+  }else if(Vx_Err_Tolerant < 2){
     printf("2\n");
-    Err_Tolerant = fmin(Err_Tolerant + 1, 2);
+    Vx_Err_Tolerant = fmin(Vx_Err_Tolerant + 1, 2);
     Prev_X_Vel[99] = predicting_curr_Vx;
     printf("Robust_Velocity_X = %f\n", predicting_curr_Vx);
     return predicting_curr_Vx;
@@ -386,15 +465,6 @@ double Robust_Velocity_X_2(double time_factor){
       Vx_Computing_vs_Reading_Noise[frames-49] = mean - computing_prev_Vx; // 1 frame is 1 sec
       printf("Vx_Computing_vs_Reading_Noise = %f\n", Vx_Computing_vs_Reading_Noise[frames-49]);
       
-      // use the computing result instead of reading to predict
-
-      // double comp_then_pred = computing_prev_Vx + horizontal_acc * 49 / 120 / 2;
-
-      // printf("comp_then_pred = %f\n", comp_then_pred);
-
-      // double comp_pred_vs_reading = comp_then_pred - temp_reading_Vx;
-
-      // printf("comp_pred_vs_reading = %f\n", comp_pred_vs_reading);
     }
     
     Vx_Predicting_vs_Reading_diff[frames-1] = predicting_curr_Vx - temp_reading_Vx;
@@ -417,34 +487,38 @@ double Robust_Velocity_X_2(double time_factor){
     // Right now we have the diff data for our predication function
     // we will use this data to attest the authentication of next X_velocity
 
-    MAX_ERR = findMax(Vx_Predicting_vs_Reading_diff, 99);
+    VX_MAX_ERR = findMax(Vx_Predicting_vs_Reading_diff, 99);
 
-    printf("MAX_ERR = %f\n", MAX_ERR);
+    printf("VX_MAX_ERR = %f\n", VX_MAX_ERR);
 
     predicting_curr_Vx = Prev_X_Vel[frames-1] + horizontal_acc / acc_factor;
 
+    Prev_X_Vel[99] = temp_reading_Vx;
 
   } else {
 
     predicting_curr_Vx = Prev_X_Vel[99] + horizontal_acc / acc_factor;
 
-    printf("Prev_X_Vel[99] = %f\n", Prev_X_Vel[99]);
+    //printf("Prev_X_Vel[99] = %f\n", Prev_X_Vel[99]);
     printf("horizontal_acc = %f\n", horizontal_acc);
+
+    Prev_X_Vel[96] = Prev_X_Vel[97];
+    Prev_X_Vel[97] = Prev_X_Vel[98];
+    Prev_X_Vel[98] = Prev_X_Vel[99];
+    Prev_X_Vel[99] = temp_reading_Vx;
 
   }
 
-  Prev_X_Vel[99] = temp_reading_Vx;
-
   double predicting_error = predicting_curr_Vx - temp_reading_Vx;
 
-  printf("temp_reading_Vx = %f\n", temp_reading_Vx);
-  printf("predicting_curr_Vx = %f\n", predicting_curr_Vx);
-  printf("predicting_error = %f\n", predicting_error);
+  //printf("temp_reading_Vx = %f\n", temp_reading_Vx);
+  //printf("predicting_curr_Vx = %f\n", predicting_curr_Vx);
+  //printf("predicting_error = %f\n", predicting_error);
 
-  if(fabs(predicting_error) > 5 * MAX_ERR){
+  if(fabs(predicting_error) > 5 * VX_MAX_ERR){
     
     printf("1\n");
-    Err_Tolerant = 0;
+    Vx_Err_Tolerant = 0;
 
     Prev_X_Vel[99] = predicting_curr_Vx;
 
@@ -452,9 +526,9 @@ double Robust_Velocity_X_2(double time_factor){
 
     return predicting_curr_Vx;
 
-  }else if(Err_Tolerant < 2){
+  }else if(Vx_Err_Tolerant < 2){
     printf("2\n");
-    Err_Tolerant = fmin(Err_Tolerant + 1, 2);
+    Vx_Err_Tolerant = fmin(Vx_Err_Tolerant + 1, 2);
     Prev_X_Vel[99] = predicting_curr_Vx;
     printf("Robust_Velocity_X = %f\n", predicting_curr_Vx);
     return predicting_curr_Vx;
@@ -767,6 +841,7 @@ void Lander_Control(void)
     double power;
     double angle;
     double Vx = Robust_Velocity_X_2(time_factor);
+    double X = Robust_Position_X();
 
     if(MT_OK) thruster = main_thruster;
     else if(RT_OK) thruster = right_thruster;
@@ -780,20 +855,20 @@ void Lander_Control(void)
     // Right_Thruster(0);
     // Left_Thruster(0);
 
-    if (fabs(Position_X()-PLAT_X)>200) VXlim=15;
-    else if (fabs(Position_X()-PLAT_X)>100) VXlim=10;
-    else if (fabs(Position_X()-PLAT_X)>35) VXlim=5;
+    if (fabs(X-PLAT_X)>200) VXlim=15;
+    else if (fabs(X-PLAT_X)>100) VXlim=10;
+    else if (fabs(X-PLAT_X)>35) VXlim=5;
     else VXlim=2;
 
     if (PLAT_Y-Position_Y()>200) VYlim=-20;
     else if (PLAT_Y-Position_Y()>100) VYlim=-10;
-    else if (fabs(Position_X()-PLAT_X)>60) VYlim=-4;  // These are negative because they
+    else if (fabs(X-PLAT_X)>60) VYlim=-4;  // These are negative because they
     else VYlim=-2;				       // limit descent velocity
 
     double y_d = fabs(PLAT_Y-Position_Y());
-    double x_d = fabs(PLAT_X-Position_X());
+    double x_d = fabs(PLAT_X-X);
     printf("fabs(PLAT_Y-Position_Y()) = %f\n", y_d);
-    printf("fabs(PLAT_X-Position_X()) = %f\n", x_d);
+    printf("fabs(PLAT_X-X) = %f\n", x_d);
 
     if(x_d<=28.0 && y_d<=30.0){
       printf("going to landing\n");
@@ -802,13 +877,15 @@ void Lander_Control(void)
 
     }else{
       // Ensure we will be OVER the platform when we land
-      if (fabs(PLAT_X-Position_X())/(1 + fabs(Vx))>1.25*fabs(PLAT_Y-Position_Y())/fabs(Velocity_Y()))
-      {printf("we got here\n");VYlim=-1;}
+      if (fabs(PLAT_X-X)/(1 + fabs(Vx))>1.25*fabs(PLAT_Y-Position_Y())/fabs(Velocity_Y())) {
+        //printf("we got here\n");
+        VYlim=-1;
+      }
 
       // Calculated the general 
 
       // Adjust VXlima
-      if (Position_X()>PLAT_X)
+      if (X>PLAT_X)
       {
         // lander to the left.
         if (Vx>(-VXlim)){
@@ -820,7 +897,7 @@ void Lander_Control(void)
         else{
           printf("go left too fast\n");
           time_factor = time_factor_coefs[thruster][1];
-          horizontal_acc = fmin(15.0, 2 * fabs(VXlim-Vx) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmin(20.0, fmax(1.0, (50/fabs(PLAT_X-Position_X())))));
+          horizontal_acc = fmin(15.0, 2 * fabs(VXlim-Vx) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmin(20.0, fmax(1.0, (50/fabs(PLAT_X-X)))));
         }
       }
       else
@@ -835,7 +912,7 @@ void Lander_Control(void)
         else{
           printf("go right too fast %f %f\n", Vx, VXlim);
           time_factor = time_factor_coefs[thruster][3];
-          horizontal_acc = - fmin(15.0, 2 * fabs(VXlim-Vx) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmin(20.0, fmax(1.0, (50/fabs(PLAT_X-Position_X())))));
+          horizontal_acc = - fmin(15.0, 2 * fabs(VXlim-Vx) * fmax(1.0, sqrt(VXlim)) * fmax(1.0, (100/fabs(PLAT_Y-Position_Y()))) * fmin(20.0, fmax(1.0, (50/fabs(PLAT_X-X)))));
         }
       }
 
@@ -896,7 +973,7 @@ void Safety_Override(void)
   not corresponding to the landing platform,
   carry out speed corrections using the thrusters
 **************************************************/
-if ((MT_OK && RT_OK && LT_OK)) {
+if ((!MT_OK && RT_OK && LT_OK)) {
  double DistLimit;
  double Vmag;
  double dmin;
